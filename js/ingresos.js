@@ -48,7 +48,7 @@
   
       const resPiezas = await supabaseClient
         .from('piezas')
-        .select('*, productos(nombre)')
+        .select('*, productos(nombre, tipo_venta)')
         .order('created_at', { ascending: false });
   
       if (resPiezas.error) {
@@ -75,18 +75,47 @@
   
       piezas.forEach((p) => {
         const nombreProducto = p.productos ? p.productos.nombre : '(producto eliminado)';
-        const costo = p.peso_kg * p.precio_compra_kg;
+        const tipo = p.productos ? p.productos.tipo_venta : 'kilo';
+        const esPorUnidad = tipo === 'unidad';
+        const cantidad = p.cantidad || 1;
+  
+        let costo, pesoMostrar, precioCompraMostrar;
+  
+        if (esPorUnidad) {
+          const precioUnidad = p.precio_compra_unidad || 0;
+          costo = cantidad * precioUnidad;
+          pesoMostrar = cantidad + ' u.';
+          precioCompraMostrar = formatearPrecio(precioUnidad) + ' / u.';
+        } else {
+          costo = p.peso_kg * p.precio_compra_kg;
+          pesoMostrar = p.peso_kg.toFixed(3) + ' kg';
+          precioCompraMostrar = formatearPrecio(p.precio_compra_kg) + ' / kg';
+        }
+  
         const fechaMostrar = formatearFecha(p.fecha_ingreso);
-        const estadoClase = p.estado === 'disponible' ? 'estado-disponible' : 'estado-vendido';
-        const estadoTexto = p.estado === 'disponible' ? 'Disponible' : 'Vendido';
+  
+        let estadoClase, estadoTexto;
+        if (esPorUnidad) {
+          if (p.estado === 'disponible' && cantidad > 0) {
+            estadoClase = 'estado-disponible';
+            estadoTexto = 'Disponible (' + cantidad + ' u.)';
+          } else {
+            estadoClase = 'estado-vendido';
+            estadoTexto = 'Vendido';
+          }
+        } else {
+          estadoClase = p.estado === 'disponible' ? 'estado-disponible' : 'estado-vendido';
+          estadoTexto = p.estado === 'disponible' ? 'Disponible' : 'Vendido';
+        }
+  
         const esEditable = p.estado === 'disponible';
   
         const fila = document.createElement('tr');
         fila.innerHTML = `
           <td>${fechaMostrar}</td>
           <td>${nombreProducto}</td>
-          <td>${p.peso_kg.toFixed(3)} kg</td>
-          <td>${formatearPrecio(p.precio_compra_kg)}</td>
+          <td>${pesoMostrar}</td>
+          <td>${precioCompraMostrar}</td>
           <td>${formatearPrecio(costo)}</td>
           <td>${p.origen || 'Frigorífico'}</td>
           <td><span class="estado-badge ${estadoClase}">${estadoTexto}</span></td>
@@ -144,29 +173,45 @@
       productos.forEach((p) => {
         const opt = document.createElement('option');
         opt.value = p.id;
-        opt.textContent = p.nombre + ' — ' + formatearPrecio(p.precio_compra_kg) + '/kg';
+        const tipo = p.tipo_venta === 'unidad' ? ' (unidad)' : '';
+        const precioRef = p.tipo_venta === 'unidad' ? p.precio_compra_unidad : p.precio_compra_kg;
+        opt.textContent = p.nombre + tipo + ' — ' + formatearPrecio(precioRef || 0) + (p.tipo_venta === 'unidad' ? '/u.' : '/kg');
         select.appendChild(opt);
       });
     }
   
-    function actualizarPrecioDesdeProducto() {
+    function actualizarFormularioSegunTipo() {
       const select = document.getElementById('input-ingreso-producto');
       const inputPrecio = document.getElementById('input-ingreso-precio');
-      if (!select || !inputPrecio) return;
+      const labelPrecio = document.getElementById('label-ingreso-precio');
+      const grupoPeso = document.getElementById('grupo-ingreso-peso');
+      const grupoCantidad = document.getElementById('grupo-ingreso-cantidad');
+  
+      if (!select) return;
   
       const id = select.value;
       if (!id) {
-        inputPrecio.value = '';
+        if (inputPrecio) inputPrecio.value = '';
+        if (grupoPeso) grupoPeso.style.display = '';
+        if (grupoCantidad) grupoCantidad.style.display = 'none';
+        if (labelPrecio) labelPrecio.textContent = 'Precio compra / kg';
         return;
       }
   
       const prod = productos.find((p) => p.id === id);
-      if (!prod) {
-        inputPrecio.value = '';
-        return;
-      }
+      if (!prod) return;
   
-      inputPrecio.value = prod.precio_compra_kg;
+      if (prod.tipo_venta === 'unidad') {
+        if (inputPrecio) inputPrecio.value = prod.precio_compra_unidad || '';
+        if (labelPrecio) labelPrecio.textContent = 'Precio compra / unidad';
+        if (grupoPeso) grupoPeso.style.display = 'none';
+        if (grupoCantidad) grupoCantidad.style.display = '';
+      } else {
+        if (inputPrecio) inputPrecio.value = prod.precio_compra_kg || '';
+        if (labelPrecio) labelPrecio.textContent = 'Precio compra / kg';
+        if (grupoPeso) grupoPeso.style.display = '';
+        if (grupoCantidad) grupoCantidad.style.display = 'none';
+      }
     }
   
     function abrirModal() {
@@ -178,10 +223,12 @@
   
       document.getElementById('input-ingreso-producto').value = '';
       document.getElementById('input-ingreso-peso').value = '';
+      document.getElementById('input-ingreso-cantidad').value = '';
       document.getElementById('input-ingreso-precio').value = '';
       document.getElementById('input-ingreso-origen').value = 'Frigorífico';
       document.getElementById('input-ingreso-fecha').value = fechaHoyISO();
       document.getElementById('modal-ingreso-error').classList.remove('activo');
+      actualizarFormularioSegunTipo();
       renderizarListaTemporal();
   
       modal.classList.add('activo');
@@ -194,7 +241,6 @@
   
     function agregarALista() {
       const productoId = document.getElementById('input-ingreso-producto').value;
-      const peso = parseFloat(document.getElementById('input-ingreso-peso').value);
       const precio = parseFloat(document.getElementById('input-ingreso-precio').value);
       const origen = document.getElementById('input-ingreso-origen').value.trim() || 'Frigorífico';
       const errorBox = document.getElementById('modal-ingreso-error');
@@ -203,12 +249,6 @@
   
       if (!productoId) {
         errorBox.textContent = 'Elegí un producto.';
-        errorBox.classList.add('activo');
-        return;
-      }
-  
-      if (isNaN(peso) || peso <= 0) {
-        errorBox.textContent = 'El peso tiene que ser un número mayor a 0.';
         errorBox.classList.add('activo');
         return;
       }
@@ -226,16 +266,49 @@
         return;
       }
   
-      listaTemporal.push({
-        productoId: prod.id,
-        nombreProducto: prod.nombre,
-        peso: peso,
-        precioCompra: precio,
-        origen: origen
-      });
+      if (prod.tipo_venta === 'unidad') {
+        const cantidad = parseInt(document.getElementById('input-ingreso-cantidad').value, 10);
   
-      document.getElementById('input-ingreso-peso').value = '';
-      document.getElementById('input-ingreso-peso').focus();
+        if (isNaN(cantidad) || cantidad <= 0) {
+          errorBox.textContent = 'La cantidad de unidades tiene que ser un número mayor a 0.';
+          errorBox.classList.add('activo');
+          return;
+        }
+  
+        listaTemporal.push({
+          productoId: prod.id,
+          nombreProducto: prod.nombre,
+          tipoVenta: 'unidad',
+          peso: 0,
+          cantidad: cantidad,
+          precioCompra: precio,
+          origen: origen
+        });
+  
+        document.getElementById('input-ingreso-cantidad').value = '';
+        document.getElementById('input-ingreso-cantidad').focus();
+      } else {
+        const peso = parseFloat(document.getElementById('input-ingreso-peso').value);
+  
+        if (isNaN(peso) || peso <= 0) {
+          errorBox.textContent = 'El peso tiene que ser un número mayor a 0.';
+          errorBox.classList.add('activo');
+          return;
+        }
+  
+        listaTemporal.push({
+          productoId: prod.id,
+          nombreProducto: prod.nombre,
+          tipoVenta: 'kilo',
+          peso: peso,
+          cantidad: 1,
+          precioCompra: precio,
+          origen: origen
+        });
+  
+        document.getElementById('input-ingreso-peso').value = '';
+        document.getElementById('input-ingreso-peso').focus();
+      }
   
       renderizarListaTemporal();
     }
@@ -261,12 +334,19 @@
   
       contenedor.innerHTML = '';
       listaTemporal.forEach((item, indice) => {
+        let detalle;
+        if (item.tipoVenta === 'unidad') {
+          detalle = item.cantidad + ' u. × ' + formatearPrecio(item.precioCompra) + '/u.';
+        } else {
+          detalle = item.peso.toFixed(3) + ' kg × ' + formatearPrecio(item.precioCompra) + '/kg';
+        }
+  
         const div = document.createElement('div');
         div.className = 'item-temporal';
         div.innerHTML = `
           <div style="flex: 1;">
             <strong>${item.nombreProducto}</strong>
-            <span class="texto-secundario text-sm"> — ${item.peso.toFixed(3)} kg — ${formatearPrecio(item.precioCompra)}/kg — ${item.origen}</span>
+            <span class="texto-secundario text-sm"> — ${detalle} — ${item.origen}</span>
           </div>
           <button type="button" class="btn-peligro" data-quitar-temporal="${indice}">✕</button>
         `;
@@ -304,14 +384,32 @@
         return;
       }
   
-      const payload = listaTemporal.map((item) => ({
-        producto_id: item.productoId,
-        peso_kg: item.peso,
-        precio_compra_kg: item.precioCompra,
-        fecha_ingreso: fecha,
-        estado: 'disponible',
-        origen: item.origen
-      }));
+      const payload = listaTemporal.map((item) => {
+        if (item.tipoVenta === 'unidad') {
+          return {
+            producto_id: item.productoId,
+            peso_kg: 0,
+            peso_unitario_kg: null,
+            precio_compra_kg: null,
+            precio_compra_unidad: item.precioCompra,
+            fecha_ingreso: fecha,
+            estado: 'disponible',
+            origen: item.origen,
+            cantidad: item.cantidad
+          };
+        } else {
+          return {
+            producto_id: item.productoId,
+            peso_kg: item.peso,
+            precio_compra_kg: item.precioCompra,
+            precio_compra_unidad: null,
+            fecha_ingreso: fecha,
+            estado: 'disponible',
+            origen: item.origen,
+            cantidad: 1
+          };
+        }
+      });
   
       const { error } = await supabaseClient.from('piezas').insert(payload);
   
@@ -335,9 +433,10 @@
         return;
       }
   
+      const tipo = pieza.productos ? pieza.productos.tipo_venta : 'kilo';
+      const esPorUnidad = tipo === 'unidad';
+  
       document.getElementById('input-editar-pieza-id').value = pieza.id;
-      document.getElementById('input-editar-pieza-peso').value = pieza.peso_kg;
-      document.getElementById('input-editar-pieza-precio').value = pieza.precio_compra_kg;
       document.getElementById('input-editar-pieza-origen').value = pieza.origen || 'Frigorífico';
       document.getElementById('input-editar-pieza-fecha').value = pieza.fecha_ingreso;
       document.getElementById('modal-editar-pieza-error').classList.remove('activo');
@@ -345,6 +444,24 @@
       const nombreEl = document.getElementById('modal-editar-pieza-nombre');
       if (nombreEl) {
         nombreEl.textContent = pieza.productos ? pieza.productos.nombre : '';
+      }
+  
+      const grupoPeso = document.getElementById('grupo-editar-peso');
+      const grupoCantidad = document.getElementById('grupo-editar-cantidad');
+      const labelPrecio = document.getElementById('label-editar-precio');
+  
+      if (esPorUnidad) {
+        if (grupoCantidad) grupoCantidad.style.display = '';
+        if (grupoPeso) grupoPeso.style.display = 'none';
+        if (labelPrecio) labelPrecio.textContent = 'Precio compra / unidad';
+        document.getElementById('input-editar-pieza-cantidad').value = pieza.cantidad || 0;
+        document.getElementById('input-editar-pieza-precio').value = pieza.precio_compra_unidad || 0;
+      } else {
+        if (grupoCantidad) grupoCantidad.style.display = 'none';
+        if (grupoPeso) grupoPeso.style.display = '';
+        if (labelPrecio) labelPrecio.textContent = 'Precio compra / kg';
+        document.getElementById('input-editar-pieza-peso').value = pieza.peso_kg;
+        document.getElementById('input-editar-pieza-precio').value = pieza.precio_compra_kg;
       }
   
       modal.classList.add('activo');
@@ -357,19 +474,12 @@
   
     async function guardarEdicion() {
       const id = document.getElementById('input-editar-pieza-id').value;
-      const peso = parseFloat(document.getElementById('input-editar-pieza-peso').value);
       const precio = parseFloat(document.getElementById('input-editar-pieza-precio').value);
       const origen = document.getElementById('input-editar-pieza-origen').value.trim() || 'Frigorífico';
       const fecha = document.getElementById('input-editar-pieza-fecha').value;
       const errorBox = document.getElementById('modal-editar-pieza-error');
   
       errorBox.classList.remove('activo');
-  
-      if (isNaN(peso) || peso <= 0) {
-        errorBox.textContent = 'El peso tiene que ser un número mayor a 0.';
-        errorBox.classList.add('activo');
-        return;
-      }
   
       if (isNaN(precio) || precio < 0) {
         errorBox.textContent = 'El precio de compra tiene que ser un número mayor o igual a 0.';
@@ -383,9 +493,51 @@
         return;
       }
   
+      const pieza = piezas.find((p) => p.id === id);
+      if (!pieza) {
+        errorBox.textContent = 'Pieza no encontrada.';
+        errorBox.classList.add('activo');
+        return;
+      }
+  
+      const tipo = pieza.productos ? pieza.productos.tipo_venta : 'kilo';
+      let payload;
+  
+      if (tipo === 'unidad') {
+        const cantidad = parseInt(document.getElementById('input-editar-pieza-cantidad').value, 10);
+  
+        if (isNaN(cantidad) || cantidad < 0) {
+          errorBox.textContent = 'La cantidad tiene que ser un número mayor o igual a 0.';
+          errorBox.classList.add('activo');
+          return;
+        }
+  
+        payload = {
+          cantidad: cantidad,
+          precio_compra_unidad: precio,
+          origen: origen,
+          fecha_ingreso: fecha
+        };
+      } else {
+        const peso = parseFloat(document.getElementById('input-editar-pieza-peso').value);
+  
+        if (isNaN(peso) || peso <= 0) {
+          errorBox.textContent = 'El peso tiene que ser un número mayor a 0.';
+          errorBox.classList.add('activo');
+          return;
+        }
+  
+        payload = {
+          peso_kg: peso,
+          precio_compra_kg: precio,
+          origen: origen,
+          fecha_ingreso: fecha
+        };
+      }
+  
       const { error } = await supabaseClient
         .from('piezas')
-        .update({ peso_kg: peso, precio_compra_kg: precio, origen: origen, fecha_ingreso: fecha })
+        .update(payload)
         .eq('id', id);
   
       if (error) {
@@ -431,7 +583,7 @@
   
       const selectProducto = document.getElementById('input-ingreso-producto');
       if (selectProducto && !selectProducto.dataset.enganchado) {
-        selectProducto.addEventListener('change', actualizarPrecioDesdeProducto);
+        selectProducto.addEventListener('change', actualizarFormularioSegunTipo);
         selectProducto.dataset.enganchado = '1';
       }
   
@@ -444,6 +596,17 @@
           }
         });
         inputPeso.dataset.enganchado = '1';
+      }
+  
+      const inputCantidad = document.getElementById('input-ingreso-cantidad');
+      if (inputCantidad && !inputCantidad.dataset.enganchado) {
+        inputCantidad.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            agregarALista();
+          }
+        });
+        inputCantidad.dataset.enganchado = '1';
       }
   
       const btnCancelarEdit = document.getElementById('btn-cancelar-editar-pieza');

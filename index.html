@@ -45,7 +45,7 @@
       <div class="flex-between mb-4">
         <div>
           <h2 class="titulo-seccion" style="margin-bottom: 0.25rem;">Lista de precios</h2>
-          <p class="texto-secundario text-sm">Productos y precios de compra/venta por kilo.</p>
+          <p class="texto-secundario text-sm">Productos y precios de compra/venta por kilo o por unidad.</p>
         </div>
         <button id="btn-nuevo-producto" class="btn-primario">+ Nuevo producto</button>
       </div>
@@ -55,15 +55,16 @@
           <thead>
             <tr>
               <th>Producto</th>
-              <th>Precio compra / kg</th>
-              <th>Precio venta / kg</th>
+              <th>Tipo</th>
+              <th>Precio compra</th>
+              <th>Precio venta</th>
               <th>Margen %</th>
-              <th>Ganancia / kg</th>
+              <th>Ganancia</th>
               <th>Acciones</th>
             </tr>
           </thead>
           <tbody id="tbody-precios">
-            <tr><td colspan="6" class="text-center texto-secundario" style="padding: 2rem;">Cargando...</td></tr>
+            <tr><td colspan="7" class="text-center texto-secundario" style="padding: 2rem;">Cargando...</td></tr>
           </tbody>
         </table>
       </div>
@@ -85,8 +86,8 @@
             <tr>
               <th>Fecha</th>
               <th>Producto</th>
-              <th>Peso (kg)</th>
-              <th>Precio compra / kg</th>
+              <th>Peso / Unidades</th>
+              <th>Precio compra</th>
               <th>Costo pieza</th>
               <th>Origen</th>
               <th>Estado</th>
@@ -141,8 +142,8 @@
           <thead>
             <tr>
               <th>Producto</th>
-              <th>Peso (kg)</th>
-              <th>Precio compra / kg</th>
+              <th>Peso / Unidades</th>
+              <th>Precio compra</th>
               <th>Fecha ingreso</th>
               <th>Estado</th>
             </tr>
@@ -261,7 +262,15 @@
         </div>
 
         <div class="form-grupo">
-          <label for="input-producto-compra" class="label-base">Precio compra / kg</label>
+          <label for="input-producto-tipo" class="label-base">Tipo de venta</label>
+          <select id="input-producto-tipo" class="input-base">
+            <option value="kilo">Por kilo</option>
+            <option value="unidad">Por unidad</option>
+          </select>
+        </div>
+
+        <div class="form-grupo">
+          <label for="input-producto-compra" class="label-base" id="label-producto-compra">Precio compra / kg</label>
           <input
             type="number"
             id="input-producto-compra"
@@ -272,11 +281,23 @@
           />
         </div>
 
-        <div class="form-grupo">
-          <label for="input-producto-venta" class="label-base">Precio venta / kg</label>
+        <div class="form-grupo" id="grupo-producto-venta-kg">
+          <label for="input-producto-venta" class="label-base" id="label-producto-venta">Precio venta / kg</label>
           <input
             type="number"
             id="input-producto-venta"
+            class="input-base"
+            placeholder="0"
+            min="0"
+            step="0.01"
+          />
+        </div>
+
+        <div class="form-grupo" id="grupo-producto-venta-unidad" style="display: none;">
+          <label for="input-producto-venta-unidad" class="label-base">Precio venta / unidad</label>
+          <input
+            type="number"
+            id="input-producto-venta-unidad"
             class="input-base"
             placeholder="0"
             min="0"
@@ -330,20 +351,20 @@
           />
         </div>
 
-        <div class="form-fila">
-          <div class="form-grupo">
-            <label for="input-ingreso-precio" class="label-base">Precio compra / kg</label>
-            <input
-              type="number"
-              id="input-ingreso-precio"
-              class="input-base"
-              placeholder="0"
-              min="0"
-              step="0.01"
-            />
-          </div>
+        <div class="form-grupo">
+          <label for="input-ingreso-precio" class="label-base" id="label-ingreso-precio">Precio compra / kg</label>
+          <input
+            type="number"
+            id="input-ingreso-precio"
+            class="input-base"
+            placeholder="0"
+            min="0"
+            step="0.01"
+          />
+        </div>
 
-          <div class="form-grupo">
+        <div class="form-fila">
+          <div class="form-grupo" id="grupo-ingreso-peso">
             <label for="input-ingreso-peso" class="label-base">Peso real (kg)</label>
             <input
               type="number"
@@ -352,6 +373,18 @@
               placeholder="Ej: 3.877"
               min="0"
               step="0.001"
+            />
+          </div>
+
+          <div class="form-grupo" id="grupo-ingreso-cantidad" style="display: none;">
+            <label for="input-ingreso-cantidad" class="label-base">Cantidad de unidades</label>
+            <input
+              type="number"
+              id="input-ingreso-cantidad"
+              class="input-base"
+              placeholder="Ej: 30"
+              min="0"
+              step="1"
             />
           </div>
         </div>
@@ -392,7 +425,7 @@
           Producto: <strong id="modal-editar-pieza-nombre">—</strong>
         </p>
 
-        <div class="form-grupo">
+        <div class="form-grupo" id="grupo-editar-peso">
           <label for="input-editar-pieza-peso" class="label-base">Peso real (kg)</label>
           <input
             type="number"
@@ -404,8 +437,20 @@
           />
         </div>
 
+        <div class="form-grupo" id="grupo-editar-cantidad" style="display: none;">
+          <label for="input-editar-pieza-cantidad" class="label-base">Cantidad de unidades</label>
+          <input
+            type="number"
+            id="input-editar-pieza-cantidad"
+            class="input-base"
+            placeholder="Ej: 30"
+            min="0"
+            step="1"
+          />
+        </div>
+
         <div class="form-grupo">
-          <label for="input-editar-pieza-precio" class="label-base">Precio compra / kg</label>
+          <label for="input-editar-pieza-precio" class="label-base" id="label-editar-precio">Precio compra / kg</label>
           <input
             type="number"
             id="input-editar-pieza-precio"
@@ -612,7 +657,6 @@
         Auth.logout();
       });
 
-      // Cambio de tabs con recarga del panel correspondiente
       const tabs = document.querySelectorAll('.tab');
       tabs.forEach((tab) => {
         tab.addEventListener('click', () => {
@@ -640,7 +684,6 @@
         });
       }
 
-      // Carga inicial
       Precios.inicializar();
       Ingresos.inicializar();
       Pedidos.inicializar();

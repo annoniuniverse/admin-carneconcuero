@@ -7,6 +7,7 @@
     let pedidos = [];
     let piezasDisponibles = [];
   
+    // Cada selección: { piezaId, productoId, nombreProducto, tipoVenta, cantidad, pesoUnitario, peso, precioCompra, precioVentaKg, precioVentaUnidad, unidadesDisponibles }
     let piezasSeleccionadas = [];
     let modoEdicion = false;
     let pedidoEditandoId = null;
@@ -31,6 +32,14 @@
       return y + '-' + m + '-' + day;
     }
   
+    // Calcula el subtotal de un item seleccionado
+    function calcularSubtotalItem(item) {
+      if (item.tipoVenta === 'unidad') {
+        return item.precioVentaUnidad * item.cantidad;
+      }
+      return item.precioVentaKg * item.peso;
+    }
+  
     // ----- CARGA DE DATOS -----
   
     async function cargar() {
@@ -41,7 +50,7 @@
   
       const resPedidos = await supabaseClient
         .from('pedidos')
-        .select('*, pedido_items(id, precio_venta_kg, piezas!pedido_items_pieza_id_fkey(peso_kg))')
+        .select('*')
         .order('created_at', { ascending: false });
   
       if (resPedidos.error) {
@@ -52,6 +61,52 @@
       }
   
       pedidos = resPedidos.data || [];
+  
+      if (pedidos.length > 0) {
+        const idsPedidos = pedidos.map((p) => p.id);
+  
+        // Items de pedido con pieza y producto
+        const resItems = await supabaseClient
+          .from('pedido_items')
+          .select('id, pedido_id, pieza_id, precio_venta_kg, precio_venta_unidad, piezas!pedido_items_pieza_id_fkey(peso_kg, peso_unitario_kg, productos(nombre, tipo_venta))')
+          .in('pedido_id', idsPedidos);
+  
+        if (resItems.error) {
+          if (tbody) {
+            tbody.innerHTML = '<tr><td colspan="8" class="text-center" style="padding: 2rem; color: #dc2626;">Error al cargar items: ' + resItems.error.message + '</td></tr>';
+          }
+          return;
+        }
+  
+        // Unidades asociadas a cada pedido_item (para productos por unidad)
+        const idsItems = (resItems.data || []).map((i) => i.id);
+        let unidadesPorItem = {};
+        if (idsItems.length > 0) {
+          const resUnidades = await supabaseClient
+            .from('pedido_item_unidades')
+            .select('pedido_item_id, cantidad')
+            .in('pedido_item_id', idsItems);
+  
+          if (!resUnidades.error) {
+            (resUnidades.data || []).forEach((u) => {
+              if (!unidadesPorItem[u.pedido_item_id]) unidadesPorItem[u.pedido_item_id] = 0;
+              unidadesPorItem[u.pedido_item_id] += u.cantidad;
+            });
+          }
+        }
+  
+        const itemsPorPedido = {};
+        (resItems.data || []).forEach((item) => {
+          item.unidades = unidadesPorItem[item.id] || 0;
+          if (!itemsPorPedido[item.pedido_id]) itemsPorPedido[item.pedido_id] = [];
+          itemsPorPedido[item.pedido_id].push(item);
+        });
+  
+        pedidos.forEach((p) => {
+          p.pedido_items = itemsPorPedido[p.id] || [];
+        });
+      }
+  
       renderizarTabla();
     }
   
@@ -67,8 +122,7 @@
   
       const resPiezas = await supabaseClient
         .from('piezas')
-        .select('*, productos(nombre)')
-        .eq('estado', 'disponible')
+        .select('*, productos(nombre, tipo_venta)')
         .order('created_at', { ascending: true });
   
       if (resPiezas.error) return;
@@ -93,8 +147,15 @@
   
         let totalVenta = 0;
         (p.pedido_items || []).forEach((item) => {
-          const peso = item.piezas ? item.piezas.peso_kg : 0;
-          totalVenta += item.precio_venta_kg * peso;
+          const prod = item.piezas && item.piezas.productos ? item.piezas.productos : null;
+          const tipo = prod ? prod.tipo_venta : 'kilo';
+  
+          if (tipo === 'unidad') {
+            totalVenta += (item.precio_venta_unidad || 0) * (item.unidades || 0);
+          } else {
+            const peso = item.piezas ? item.piezas.peso_kg : 0;
+            totalVenta += (item.precio_venta_kg || 0) * peso;
+          }
         });
   
         const estadoClase = 'estado-' + p.estado;
@@ -159,29 +220,7 @@
           const id = btn.getAttribute('data-cancelar');
           if (!confirm('¿Cancelar este pedido? Las piezas vuelven a estar disponibles.')) return;
   
-          const resItems = await supabaseClient
-            .from('pedido_items')
-            .select('pieza_id')
-            .eq('pedido_id', id);
-  
-          if (resItems.error) {
-            alert('Error: ' + resItems.error.message);
-            return;
-          }
-  
-          const piezaIds = (resItems.data || []).map((i) => i.pieza_id);
-  
-          if (piezaIds.length > 0) {
-            const { error: errPiezas } = await supabaseClient
-              .from('piezas')
-              .update({ estado: 'disponible', pedido_item_id: null })
-              .in('id', piezaIds);
-            if (errPiezas) {
-              alert('Error liberando piezas: ' + errPiezas.message);
-              return;
-            }
-          }
-  
+          await liberarPiezasDePedido(id);
           const { error: errPedido } = await supabaseClient.from('pedidos').update({ estado: 'cancelado' }).eq('id', id);
           if (errPedido) {
             alert('Error: ' + errPedido.message);
@@ -198,42 +237,26 @@
           const pedido = pedidos.find((p) => p.id === id);
           if (!pedido) return;
   
-          // Confirmación extra si está entregado
           if (pedido.estado === 'entregado') {
-            if (!confirm('Este pedido está ENTREGADO. Si lo borrás, va a desaparecer del resumen y las cuentas van a cambiar. ¿Continuar?')) {
-              return;
-            }
-            if (!confirm('¿Estás seguro? Esta acción no se puede deshacer.')) {
-              return;
-            }
+            if (!confirm('Este pedido está ENTREGADO. Si lo borrás, va a desaparecer del resumen y las cuentas van a cambiar. ¿Continuar?')) return;
+            if (!confirm('¿Estás seguro? Esta acción no se puede deshacer.')) return;
           } else {
-            if (!confirm('¿Borrar este pedido? Esta acción no se puede deshacer.')) {
-              return;
-            }
+            if (!confirm('¿Borrar este pedido? Esta acción no se puede deshacer.')) return;
           }
   
-          // 1) Traer items para liberar piezas (solo si NO está cancelado)
           if (pedido.estado !== 'cancelado') {
-            const resItems = await supabaseClient
-              .from('pedido_items')
-              .select('pieza_id')
-              .eq('pedido_id', id);
-  
-            if (!resItems.error) {
-              const piezaIds = (resItems.data || []).map((i) => i.pieza_id);
-              if (piezaIds.length > 0) {
-                await supabaseClient
-                  .from('piezas')
-                  .update({ estado: 'disponible', pedido_item_id: null })
-                  .in('id', piezaIds);
-              }
-            }
+            await liberarPiezasDePedido(id);
           }
   
-          // 2) Borrar items (por si la FK no tiene cascade)
+          // Borrar pedido_item_unidades
+          const resItems = await supabaseClient.from('pedido_items').select('id').eq('pedido_id', id);
+          if (!resItems.error && resItems.data && resItems.data.length > 0) {
+            const idsItems = resItems.data.map((i) => i.id);
+            await supabaseClient.from('pedido_item_unidades').delete().in('pedido_item_id', idsItems);
+          }
+  
           await supabaseClient.from('pedido_items').delete().eq('pedido_id', id);
   
-          // 3) Borrar pedido
           const { error } = await supabaseClient.from('pedidos').delete().eq('id', id);
           if (error) {
             alert('Error borrando pedido: ' + error.message);
@@ -243,6 +266,62 @@
           cargar();
         });
       });
+    }
+  
+    // Libera las piezas de un pedido (para cancelar o borrar)
+    async function liberarPiezasDePedido(pedidoId) {
+      // Traer items con datos de pieza
+      const resItems = await supabaseClient
+        .from('pedido_items')
+        .select('id, pieza_id, piezas!pedido_items_pieza_id_fkey(cantidad, peso_unitario_kg, productos(tipo_venta))')
+        .eq('pedido_id', pedidoId);
+  
+      if (resItems.error) return;
+  
+      // Traer unidades
+      const idsItems = (resItems.data || []).map((i) => i.id);
+      let unidadesPorItem = {};
+      if (idsItems.length > 0) {
+        const resUnidades = await supabaseClient
+          .from('pedido_item_unidades')
+          .select('pedido_item_id, cantidad')
+          .in('pedido_item_id', idsItems);
+        if (!resUnidades.error) {
+          (resUnidades.data || []).forEach((u) => {
+            if (!unidadesPorItem[u.pedido_item_id]) unidadesPorItem[u.pedido_item_id] = 0;
+            unidadesPorItem[u.pedido_item_id] += u.cantidad;
+          });
+        }
+      }
+  
+      for (const item of resItems.data || []) {
+        const pz = item.piezas;
+        if (!pz) continue;
+        const tipo = pz.productos ? pz.productos.tipo_venta : 'kilo';
+  
+        if (tipo === 'unidad') {
+          // Devolver unidades a la pieza
+          const unidadesADevolver = unidadesPorItem[item.id] || 0;
+          if (unidadesADevolver > 0) {
+            const nuevaCantidad = (pz.cantidad || 0) + unidadesADevolver;
+            await supabaseClient
+              .from('piezas')
+              .update({ cantidad: nuevaCantidad, estado: 'disponible' })
+              .eq('id', item.pieza_id);
+          }
+        } else {
+          // Pieza completa vuelve a disponible
+          await supabaseClient
+            .from('piezas')
+            .update({ estado: 'disponible', pedido_item_id: null })
+            .eq('id', item.pieza_id);
+        }
+      }
+  
+      // Borrar registros de pedido_item_unidades
+      if (idsItems.length > 0) {
+        await supabaseClient.from('pedido_item_unidades').delete().in('pedido_item_id', idsItems);
+      }
     }
   
     // ----- MODAL -----
@@ -294,9 +373,10 @@
       document.getElementById('input-pedido-fecha').value = pedido.fecha;
       document.getElementById('modal-pedido-error').classList.remove('activo');
   
+      // Cargar items del pedido + unidades
       const resItems = await supabaseClient
         .from('pedido_items')
-        .select('id, precio_venta_kg, pieza_id, piezas!pedido_items_pieza_id_fkey(peso_kg, precio_compra_kg, producto_id, productos(nombre))')
+        .select('id, precio_venta_kg, precio_venta_unidad, pieza_id, piezas!pedido_items_pieza_id_fkey(peso_kg, peso_unitario_kg, cantidad, producto_id, productos(nombre, tipo_venta))')
         .eq('pedido_id', pedido.id);
   
       if (resItems.error) {
@@ -305,16 +385,39 @@
         return;
       }
   
+      const idsItems = (resItems.data || []).map((i) => i.id);
+      let unidadesPorItem = {};
+      if (idsItems.length > 0) {
+        const resUnidades = await supabaseClient
+          .from('pedido_item_unidades')
+          .select('pedido_item_id, cantidad')
+          .in('pedido_item_id', idsItems);
+        if (!resUnidades.error) {
+          (resUnidades.data || []).forEach((u) => {
+            if (!unidadesPorItem[u.pedido_item_id]) unidadesPorItem[u.pedido_item_id] = 0;
+            unidadesPorItem[u.pedido_item_id] += u.cantidad;
+          });
+        }
+      }
+  
       (resItems.data || []).forEach((item) => {
         const pz = item.piezas;
         if (!pz) return;
+        const prod = pz.productos;
+        const tipo = prod ? prod.tipo_venta : 'kilo';
+  
         piezasSeleccionadas.push({
+          pedidoItemId: item.id,
           piezaId: item.pieza_id,
           productoId: pz.producto_id,
-          nombreProducto: pz.productos ? pz.productos.nombre : '—',
+          nombreProducto: prod ? prod.nombre : '—',
+          tipoVenta: tipo,
+          cantidad: unidadesPorItem[item.id] || 0,
+          pesoUnitario: pz.peso_unitario_kg || 0,
           peso: pz.peso_kg,
-          precioCompra: pz.precio_compra_kg,
-          precioVenta: item.precio_venta_kg
+          precioCompra: 0,
+          precioVentaKg: item.precio_venta_kg || 0,
+          precioVentaUnidad: item.precio_venta_unidad || 0
         });
       });
   
@@ -377,9 +480,29 @@
         return;
       }
   
-      const filtradas = piezasDisponibles.filter(
-        (pz) => pz.producto_id === prodId && !piezasSeleccionadas.some((s) => s.piezaId === pz.id)
-      );
+      const prod = productos.find((p) => p.id === prodId);
+      if (!prod) return;
+  
+      const esUnidad = prod.tipo_venta === 'unidad';
+  
+      let filtradas = piezasDisponibles.filter((pz) => {
+        if (pz.producto_id !== prodId) return false;
+        if (esUnidad) {
+          return pz.estado === 'disponible' && (pz.cantidad || 0) > 0;
+        }
+        return pz.estado === 'disponible';
+      });
+  
+      if (esUnidad) {
+        // Descontar unidades ya seleccionadas en este pedido de la pieza original
+        filtradas = filtradas.map((pz) => {
+          const yaEnPedido = piezasSeleccionadas.find((s) => s.piezaId === pz.id && s.tipoVenta === 'unidad');
+          const disponibles = yaEnPedido ? Math.max(0, (pz.cantidad || 0) - yaEnPedido.cantidad) : (pz.cantidad || 0);
+          return Object.assign({}, pz, { unidadesDisponibles: disponibles });
+        }).filter((pz) => pz.unidadesDisponibles > 0);
+      } else {
+        filtradas = filtradas.filter((pz) => !piezasSeleccionadas.some((s) => s.piezaId === pz.id));
+      }
   
       if (filtradas.length === 0) {
         contenedor.innerHTML = '<p class="texto-secundario text-sm" style="padding: 0.5rem 0;">No hay piezas disponibles de este producto.</p>';
@@ -388,34 +511,101 @@
   
       contenedor.innerHTML = '';
       filtradas.forEach((pz) => {
-        const prod = productos.find((p) => p.id === pz.producto_id);
-        const precioVentaSugerido = prod ? prod.precio_venta_kg : 0;
+        if (esUnidad) {
+          const pvUnidad = prod.precio_venta_unidad || 0;
+          const unidadesDisp = pz.unidadesDisponibles;
+          const pesoUnit = pz.peso_unitario_kg || 0;
   
-        const div = document.createElement('div');
-        div.className = 'item-temporal';
-        div.innerHTML = `
-          <div style="flex: 1;">
-            <strong>${pz.peso_kg.toFixed(3)} kg</strong>
-            <span class="texto-secundario text-sm"> — compra ${formatearPrecio(pz.precio_compra_kg)}/kg</span>
-          </div>
-          <button type="button" class="btn-primario" data-agregar-pieza="${pz.id}" style="padding: 0.35rem 0.7rem; font-size: 0.8rem;">
-            + Agregar
-          </button>
-        `;
-        contenedor.appendChild(div);
+          const div = document.createElement('div');
+          div.className = 'item-temporal';
+          div.style.flexWrap = 'wrap';
+          div.innerHTML = `
+            <div style="flex: 1; min-width: 180px;">
+              <strong>${unidadesDisp} u. disponibles</strong>
+              <span class="texto-secundario text-sm"> — ${pesoUnit.toFixed(3)} kg/u — venta ${formatearPrecio(pvUnidad)}/u</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.5rem;">
+              <input
+                type="number"
+                class="input-base"
+                style="width: 80px; padding: 0.35rem 0.5rem; font-size: 0.85rem;"
+                value="1"
+                min="1"
+                max="${unidadesDisp}"
+                step="1"
+                data-cantidad-input="${pz.id}"
+              />
+              <button type="button" class="btn-primario" data-agregar-unidad="${pz.id}" style="padding: 0.35rem 0.7rem; font-size: 0.8rem;">
+                + Agregar
+              </button>
+            </div>
+          `;
+          contenedor.appendChild(div);
   
-        div.querySelector('[data-agregar-pieza]').addEventListener('click', () => {
-          piezasSeleccionadas.push({
-            piezaId: pz.id,
-            productoId: pz.producto_id,
-            nombreProducto: prod ? prod.nombre : '—',
-            peso: pz.peso_kg,
-            precioCompra: pz.precio_compra_kg,
-            precioVenta: precioVentaSugerido
+          div.querySelector('[data-agregar-unidad]').addEventListener('click', () => {
+            const inputCant = div.querySelector('[data-cantidad-input]');
+            const cant = parseInt(inputCant.value, 10);
+            if (isNaN(cant) || cant <= 0) {
+              alert('La cantidad tiene que ser un número mayor a 0.');
+              return;
+            }
+            if (cant > unidadesDisp) {
+              alert('No hay suficientes unidades disponibles (' + unidadesDisp + ').');
+              return;
+            }
+  
+            const existente = piezasSeleccionadas.find((s) => s.piezaId === pz.id && s.tipoVenta === 'unidad');
+            if (existente) {
+              existente.cantidad += cant;
+            } else {
+              piezasSeleccionadas.push({
+                piezaId: pz.id,
+                productoId: pz.producto_id,
+                nombreProducto: prod.nombre,
+                tipoVenta: 'unidad',
+                cantidad: cant,
+                pesoUnitario: pesoUnit,
+                peso: pesoUnit * cant,
+                precioCompra: pz.precio_compra_kg || 0,
+                precioVentaKg: 0,
+                precioVentaUnidad: pvUnidad
+              });
+            }
+            renderizarPiezasDisponibles();
+            renderizarSeleccionadas();
           });
-          renderizarPiezasDisponibles();
-          renderizarSeleccionadas();
-        });
+        } else {
+          const pvKg = prod.precio_venta_kg || 0;
+          const div = document.createElement('div');
+          div.className = 'item-temporal';
+          div.innerHTML = `
+            <div style="flex: 1;">
+              <strong>${pz.peso_kg.toFixed(3)} kg</strong>
+              <span class="texto-secundario text-sm"> — compra ${formatearPrecio(pz.precio_compra_kg)}/kg</span>
+            </div>
+            <button type="button" class="btn-primario" data-agregar-pieza="${pz.id}" style="padding: 0.35rem 0.7rem; font-size: 0.8rem;">
+              + Agregar
+            </button>
+          `;
+          contenedor.appendChild(div);
+  
+          div.querySelector('[data-agregar-pieza]').addEventListener('click', () => {
+            piezasSeleccionadas.push({
+              piezaId: pz.id,
+              productoId: pz.producto_id,
+              nombreProducto: prod.nombre,
+              tipoVenta: 'kilo',
+              cantidad: 1,
+              pesoUnitario: 0,
+              peso: pz.peso_kg,
+              precioCompra: pz.precio_compra_kg,
+              precioVentaKg: pvKg,
+              precioVentaUnidad: 0
+            });
+            renderizarPiezasDisponibles();
+            renderizarSeleccionadas();
+          });
+        }
       });
     }
   
@@ -432,24 +622,38 @@
   
       contenedor.innerHTML = '';
       piezasSeleccionadas.forEach((item, indice) => {
+        const subtotal = calcularSubtotalItem(item);
+  
+        let detalle, inputPrecioValor, labelPrecio;
+  
+        if (item.tipoVenta === 'unidad') {
+          detalle = item.cantidad + ' u. × ' + formatearPrecio(item.precioVentaUnidad) + '/u = ' + formatearPrecio(subtotal);
+          inputPrecioValor = item.precioVentaUnidad;
+          labelPrecio = 'Venta /u:';
+        } else {
+          detalle = item.peso.toFixed(3) + ' kg × ' + formatearPrecio(item.precioVentaKg) + '/kg = ' + formatearPrecio(subtotal);
+          inputPrecioValor = item.precioVentaKg;
+          labelPrecio = 'Venta /kg:';
+        }
+  
         const div = document.createElement('div');
         div.className = 'item-temporal';
         div.style.flexWrap = 'wrap';
         div.innerHTML = `
-          <div style="flex: 1; min-width: 140px;">
+          <div style="flex: 1; min-width: 200px;">
             <strong>${item.nombreProducto}</strong>
-            <span class="texto-secundario text-sm"> — ${item.peso.toFixed(3)} kg</span>
+            <span class="texto-secundario text-sm"> — ${detalle}</span>
           </div>
           <div style="display: flex; align-items: center; gap: 0.5rem;">
-            <label class="texto-secundario text-xs">Venta /kg:</label>
+            <label class="texto-secundario text-xs">${labelPrecio}</label>
             <input
               type="number"
               class="input-base"
               style="width: 100px; padding: 0.35rem 0.5rem; font-size: 0.85rem;"
-              value="${item.precioVenta}"
+              value="${inputPrecioValor}"
               min="0"
               step="0.01"
-              data-precio-venta="${indice}"
+              data-precio-input="${indice}"
             />
             <button type="button" class="btn-peligro" data-quitar-seleccion="${indice}">✕</button>
           </div>
@@ -457,12 +661,16 @@
         contenedor.appendChild(div);
       });
   
-      contenedor.querySelectorAll('[data-precio-venta]').forEach((input) => {
+      contenedor.querySelectorAll('[data-precio-input]').forEach((input) => {
         input.addEventListener('input', (e) => {
-          const idx = parseInt(input.getAttribute('data-precio-venta'), 10);
+          const idx = parseInt(input.getAttribute('data-precio-input'), 10);
           const valor = parseFloat(e.target.value);
           if (!isNaN(valor) && valor >= 0) {
-            piezasSeleccionadas[idx].precioVenta = valor;
+            if (piezasSeleccionadas[idx].tipoVenta === 'unidad') {
+              piezasSeleccionadas[idx].precioVentaUnidad = valor;
+            } else {
+              piezasSeleccionadas[idx].precioVentaKg = valor;
+            }
           }
         });
       });
@@ -496,13 +704,11 @@
         errorBox.classList.add('activo');
         return;
       }
-  
       if (!fecha) {
         errorBox.textContent = 'Elegí una fecha.';
         errorBox.classList.add('activo');
         return;
       }
-  
       if (piezasSeleccionadas.length === 0) {
         errorBox.textContent = 'Agregá al menos una pieza al pedido.';
         errorBox.classList.add('activo');
@@ -536,31 +742,52 @@
         return;
       }
   
-      const itemsPayload = piezasSeleccionadas.map((s) => ({
-        pedido_id: pedidoCreado.id,
-        pieza_id: s.piezaId,
-        precio_venta_kg: s.precioVenta
-      }));
+      // Crear los items uno por uno para poder asociar unidades
+      for (const sel of piezasSeleccionadas) {
+        const payloadItem = {
+          pedido_id: pedidoCreado.id,
+          pieza_id: sel.piezaId,
+          precio_venta_kg: sel.tipoVenta === 'unidad' ? null : sel.precioVentaKg,
+          precio_venta_unidad: sel.tipoVenta === 'unidad' ? sel.precioVentaUnidad : null
+        };
   
-      const { data: itemsCreados, error: errItems } = await supabaseClient
-        .from('pedido_items')
-        .insert(itemsPayload)
-        .select();
+        const { data: itemCreado, error: errItem } = await supabaseClient
+          .from('pedido_items')
+          .insert([payloadItem])
+          .select()
+          .single();
   
-      if (errItems) {
-        await supabaseClient.from('pedidos').delete().eq('id', pedidoCreado.id);
-        errorBox.textContent = 'Error creando items: ' + errItems.message;
-        errorBox.classList.add('activo');
-        return;
-      }
+        if (errItem) {
+          errorBox.textContent = 'Error creando item: ' + errItem.message;
+          errorBox.classList.add('activo');
+          return;
+        }
   
-      for (let i = 0; i < itemsCreados.length; i++) {
-        const item = itemsCreados[i];
-        const seleccion = piezasSeleccionadas[i];
-        await supabaseClient
-          .from('piezas')
-          .update({ estado: 'vendido', pedido_item_id: item.id })
-          .eq('id', seleccion.piezaId);
+        if (sel.tipoVenta === 'unidad') {
+          // Registrar unidades
+          await supabaseClient.from('pedido_item_unidades').insert([{
+            pedido_item_id: itemCreado.id,
+            pieza_id: sel.piezaId,
+            cantidad: sel.cantidad
+          }]);
+  
+          // Descontar de la pieza
+          const piezaOriginal = piezasDisponibles.find((p) => p.id === sel.piezaId);
+          const nuevaCantidad = (piezaOriginal ? piezaOriginal.cantidad : 0) - sel.cantidad;
+          await supabaseClient
+            .from('piezas')
+            .update({
+              cantidad: nuevaCantidad,
+              estado: nuevaCantidad <= 0 ? 'vendido' : 'disponible'
+            })
+            .eq('id', sel.piezaId);
+        } else {
+          // Pieza por kilo completa: marcar como vendida
+          await supabaseClient
+            .from('piezas')
+            .update({ estado: 'vendido', pedido_item_id: itemCreado.id })
+            .eq('id', sel.piezaId);
+        }
       }
   
       cerrarModal();
@@ -585,9 +812,10 @@
         return;
       }
   
+      // Items actuales con datos
       const { data: itemsActuales, error: errGet } = await supabaseClient
         .from('pedido_items')
-        .select('id, pieza_id, precio_venta_kg')
+        .select('id, pieza_id, precio_venta_kg, precio_venta_unidad, piezas!pedido_items_pieza_id_fkey(cantidad, peso_unitario_kg, productos(tipo_venta))')
         .eq('pedido_id', pedidoEditandoId);
   
       if (errGet) {
@@ -597,56 +825,147 @@
       }
   
       const itemsActualesArr = itemsActuales || [];
-      const idsSeleccionados = piezasSeleccionadas.map((s) => s.piezaId);
   
-      const aEliminar = itemsActualesArr.filter((i) => !idsSeleccionados.includes(i.pieza_id));
-      const aInsertar = piezasSeleccionadas.filter(
-        (s) => !itemsActualesArr.some((i) => i.pieza_id === s.piezaId)
-      );
-  
-      for (const item of aEliminar) {
-        await supabaseClient
-          .from('piezas')
-          .update({ estado: 'disponible', pedido_item_id: null })
-          .eq('id', item.pieza_id);
-        await supabaseClient.from('pedido_items').delete().eq('id', item.id);
+      // Cargar unidades actuales
+      const idsItemsActuales = itemsActualesArr.map((i) => i.id);
+      let unidadesActuales = {};
+      if (idsItemsActuales.length > 0) {
+        const resUnidades = await supabaseClient
+          .from('pedido_item_unidades')
+          .select('pedido_item_id, pieza_id, cantidad')
+          .in('pedido_item_id', idsItemsActuales);
+        if (!resUnidades.error) {
+          (resUnidades.data || []).forEach((u) => {
+            unidadesActuales[u.pedido_item_id] = (unidadesActuales[u.pedido_item_id] || 0) + u.cantidad;
+          });
+        }
       }
   
+      // 1) Eliminar items que ya no están
       for (const item of itemsActualesArr) {
-        const seleccion = piezasSeleccionadas.find((s) => s.piezaId === item.pieza_id);
-        if (seleccion && seleccion.precioVenta !== item.precio_venta_kg) {
-          await supabaseClient
-            .from('pedido_items')
-            .update({ precio_venta_kg: seleccion.precioVenta })
-            .eq('id', item.id);
+        const sel = piezasSeleccionadas.find((s) =>
+          (s.pedidoItemId && s.pedidoItemId === item.id) ||
+          (s.piezaId === item.pieza_id && !s.pedidoItemId)
+        );
+  
+        const tipo = item.piezas && item.piezas.productos ? item.piezas.productos.tipo_venta : 'kilo';
+  
+        if (!sel) {
+          // Devolver stock
+          if (tipo === 'unidad') {
+            const unidadesADevolver = unidadesActuales[item.id] || 0;
+            if (unidadesADevolver > 0) {
+              const nuevaCant = (item.piezas.cantidad || 0) + unidadesADevolver;
+              await supabaseClient
+                .from('piezas')
+                .update({ cantidad: nuevaCant, estado: 'disponible' })
+                .eq('id', item.pieza_id);
+            }
+            // Borrar unidades
+            await supabaseClient.from('pedido_item_unidades').delete().eq('pedido_item_id', item.id);
+          } else {
+            await supabaseClient
+              .from('piezas')
+              .update({ estado: 'disponible', pedido_item_id: null })
+              .eq('id', item.pieza_id);
+          }
+          // Borrar item
+          await supabaseClient.from('pedido_items').delete().eq('id', item.id);
         }
       }
   
-      if (aInsertar.length > 0) {
-        const payload = aInsertar.map((s) => ({
-          pedido_id: pedidoEditandoId,
-          pieza_id: s.piezaId,
-          precio_venta_kg: s.precioVenta
-        }));
+      // 2) Actualizar items existentes (precio) y ajustar unidades
+      for (const sel of piezasSeleccionadas) {
+        if (sel.pedidoItemId) {
+          const itemActual = itemsActualesArr.find((i) => i.id === sel.pedidoItemId);
+          if (!itemActual) continue;
   
-        const { data: creados, error: errIns } = await supabaseClient
-          .from('pedido_items')
-          .insert(payload)
-          .select();
+          if (sel.tipoVenta === 'unidad') {
+            // Actualizar precio unidad
+            await supabaseClient
+              .from('pedido_items')
+              .update({ precio_venta_unidad: sel.precioVentaUnidad })
+              .eq('id', sel.pedidoItemId);
   
-        if (errIns) {
-          errorBox.textContent = 'Error insertando items nuevos: ' + errIns.message;
-          errorBox.classList.add('activo');
-          return;
-        }
+            // Ajustar unidades si cambió la cantidad
+            const unidadesActualesCant = unidadesActuales[sel.pedidoItemId] || 0;
+            const delta = sel.cantidad - unidadesActualesCant;
   
-        for (let i = 0; i < creados.length; i++) {
-          const item = creados[i];
-          const seleccion = aInsertar[i];
-          await supabaseClient
-            .from('piezas')
-            .update({ estado: 'vendido', pedido_item_id: item.id })
-            .eq('id', seleccion.piezaId);
+            if (delta !== 0) {
+              // Actualizar registro de unidades
+              await supabaseClient.from('pedido_item_unidades').delete().eq('pedido_item_id', sel.pedidoItemId);
+              if (sel.cantidad > 0) {
+                await supabaseClient.from('pedido_item_unidades').insert([{
+                  pedido_item_id: sel.pedidoItemId,
+                  pieza_id: sel.piezaId,
+                  cantidad: sel.cantidad
+                }]);
+              }
+  
+              // Ajustar stock de la pieza
+              const piezaActual = itemsActualesArr.find((i) => i.pieza_id === sel.piezaId);
+              const cantActualPieza = piezaActual && piezaActual.piezas ? piezaActual.piezas.cantidad : 0;
+              const nuevaCant = cantActualPieza - delta;
+              await supabaseClient
+                .from('piezas')
+                .update({
+                  cantidad: nuevaCant,
+                  estado: nuevaCant <= 0 ? 'vendido' : 'disponible'
+                })
+                .eq('id', sel.piezaId);
+            }
+          } else {
+            // Producto por kilo: solo actualizar precio
+            await supabaseClient
+              .from('pedido_items')
+              .update({ precio_venta_kg: sel.precioVentaKg })
+              .eq('id', sel.pedidoItemId);
+          }
+        } else {
+          // Item nuevo
+          const payload = {
+            pedido_id: pedidoEditandoId,
+            pieza_id: sel.piezaId,
+            precio_venta_kg: sel.tipoVenta === 'unidad' ? null : sel.precioVentaKg,
+            precio_venta_unidad: sel.tipoVenta === 'unidad' ? sel.precioVentaUnidad : null
+          };
+  
+          const { data: creado, error: errIns } = await supabaseClient
+            .from('pedido_items')
+            .insert([payload])
+            .select()
+            .single();
+  
+          if (errIns) {
+            errorBox.textContent = 'Error insertando item: ' + errIns.message;
+            errorBox.classList.add('activo');
+            return;
+          }
+  
+          if (sel.tipoVenta === 'unidad') {
+            await supabaseClient.from('pedido_item_unidades').insert([{
+              pedido_item_id: creado.id,
+              pieza_id: sel.piezaId,
+              cantidad: sel.cantidad
+            }]);
+  
+            // Descontar de la pieza
+            const pieza = piezasDisponibles.find((p) => p.id === sel.piezaId);
+            const cantActual = pieza ? pieza.cantidad : 0;
+            const nueva = cantActual - sel.cantidad;
+            await supabaseClient
+              .from('piezas')
+              .update({
+                cantidad: nueva,
+                estado: nueva <= 0 ? 'vendido' : 'disponible'
+              })
+              .eq('id', sel.piezaId);
+          } else {
+            await supabaseClient
+              .from('piezas')
+              .update({ estado: 'vendido', pedido_item_id: creado.id })
+              .eq('id', sel.piezaId);
+          }
         }
       }
   

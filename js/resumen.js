@@ -38,12 +38,77 @@
       if (inputHasta) inputHasta.value = fmtFecha(ultimoDia);
     }
   
-    // ----- CÁLCULOS -----
+    async function calcularVentasYGanancia(desde, hasta) {
+      const resPedidos = await supabaseClient
+        .from('pedidos')
+        .select('id')
+        .gte('fecha', desde)
+        .lte('fecha', hasta)
+        .neq('estado', 'cancelado');
+  
+      if (resPedidos.error) return { error: resPedidos.error.message };
+      const idsPedidos = (resPedidos.data || []).map((p) => p.id);
+      if (idsPedidos.length === 0) return { ventas: 0, ganancia: 0 };
+  
+      const resItems = await supabaseClient
+        .from('pedido_items')
+        .select('id, pedido_id, pieza_id, precio_venta_kg, precio_venta_unidad, piezas!pedido_items_pieza_id_fkey(peso_kg, peso_unitario_kg, precio_compra_kg, precio_compra_unidad, productos(tipo_venta))')
+        .in('pedido_id', idsPedidos);
+  
+      if (resItems.error) return { error: resItems.error.message };
+  
+      const items = resItems.data || [];
+  
+      const idsItems = items.map((i) => i.id);
+      let unidadesPorItem = {};
+      if (idsItems.length > 0) {
+        const resUnidades = await supabaseClient
+          .from('pedido_item_unidades')
+          .select('pedido_item_id, cantidad')
+          .in('pedido_item_id', idsItems);
+  
+        if (!resUnidades.error) {
+          (resUnidades.data || []).forEach((u) => {
+            if (!unidadesPorItem[u.pedido_item_id]) unidadesPorItem[u.pedido_item_id] = 0;
+            unidadesPorItem[u.pedido_item_id] += u.cantidad;
+          });
+        }
+      }
+  
+      let ventas = 0;
+      let ganancia = 0;
+  
+      items.forEach((item) => {
+        const pz = item.piezas;
+        if (!pz) return;
+        const prod = pz.productos;
+        const tipo = prod ? prod.tipo_venta : 'kilo';
+  
+        if (tipo === 'unidad') {
+          const cantidadVendida = unidadesPorItem[item.id] || 0;
+          const precioVentaUnidad = item.precio_venta_unidad || 0;
+          const precioCompraUnidad = pz.precio_compra_unidad || 0;
+  
+          ventas += precioVentaUnidad * cantidadVendida;
+          ganancia += (precioVentaUnidad - precioCompraUnidad) * cantidadVendida;
+        } else {
+          const peso = pz.peso_kg || 0;
+          const precioVentaKg = item.precio_venta_kg || 0;
+          const precioCompraKg = pz.precio_compra_kg || 0;
+  
+          ventas += precioVentaKg * peso;
+          ganancia += (precioVentaKg - precioCompraKg) * peso;
+        }
+      });
+  
+      return { ventas, ganancia };
+    }
   
     async function calcular() {
       const inputDesde = document.getElementById('resumen-desde');
       const inputHasta = document.getElementById('resumen-hasta');
       const elCosto = document.getElementById('resumen-costo');
+      const elCostoTotal = document.getElementById('resumen-costo-total');
       const elVentas = document.getElementById('resumen-ventas');
       const elGanancia = document.getElementById('resumen-ganancia');
       const elPagadoRango = document.getElementById('resumen-pagado-rango');
@@ -78,16 +143,17 @@
       }
   
       elCosto.textContent = '...';
+      if (elCostoTotal) elCostoTotal.textContent = '...';
       elVentas.textContent = '...';
       elGanancia.textContent = '...';
       if (elPagadoRango) elPagadoRango.textContent = '...';
       if (elSaldoRango) elSaldoRango.textContent = '...';
       if (elSaldoTotal) elSaldoTotal.textContent = '...';
   
-      // 1) Costo frigorífico del rango
+      // 1) Piezas del rango
       const resPiezas = await supabaseClient
         .from('piezas')
-        .select('peso_kg, precio_compra_kg, fecha_ingreso')
+        .select('peso_kg, cantidad, precio_compra_kg, precio_compra_unidad, origen, fecha_ingreso, productos(tipo_venta)')
         .gte('fecha_ingreso', desde)
         .lte('fecha_ingreso', hasta);
   
@@ -100,43 +166,34 @@
         return;
       }
   
-      let costoRango = 0;
+      let costoFrigo = 0;
+      let costoTotal = 0;
       (resPiezas.data || []).forEach((p) => {
-        costoRango += p.peso_kg * p.precio_compra_kg;
+        const tipo = p.productos ? p.productos.tipo_venta : 'kilo';
+        let costo;
+        if (tipo === 'unidad') {
+          costo = (p.cantidad || 0) * (p.precio_compra_unidad || 0);
+        } else {
+          costo = (p.peso_kg || 0) * (p.precio_compra_kg || 0);
+        }
+        costoTotal += costo;
+        if ((p.origen || 'Frigorífico') === 'Frigorífico') {
+          costoFrigo += costo;
+        }
       });
   
-      // 2) Ventas y ganancia del rango
-      const resPedidos = await supabaseClient
-        .from('pedidos')
-        .select('id, fecha, estado, pedido_items(precio_venta_kg, piezas!pedido_items_pieza_id_fkey(peso_kg, precio_compra_kg))')
-        .gte('fecha', desde)
-        .lte('fecha', hasta)
-        .neq('estado', 'cancelado');
-  
-      if (resPedidos.error) {
+      // 2) Ventas y ganancia
+      const resultado = await calcularVentasYGanancia(desde, hasta);
+      if (resultado.error) {
         elVentas.textContent = 'Error';
         if (errorBox) {
-          errorBox.textContent = 'Error cargando pedidos: ' + resPedidos.error.message;
+          errorBox.textContent = 'Error calculando ventas: ' + resultado.error;
           errorBox.classList.add('activo');
         }
         return;
       }
-  
-      let ventasRango = 0;
-      let gananciaRango = 0;
-  
-      (resPedidos.data || []).forEach((pedido) => {
-        (pedido.pedido_items || []).forEach((item) => {
-          const pz = item.piezas;
-          if (!pz) return;
-          const peso = pz.peso_kg;
-          const precioVenta = item.precio_venta_kg;
-          const precioCompra = pz.precio_compra_kg;
-  
-          ventasRango += precioVenta * peso;
-          gananciaRango += (precioVenta - precioCompra) * peso;
-        });
-      });
+      const ventasRango = resultado.ventas;
+      const gananciaRango = resultado.ganancia;
   
       // 3) Pagos del rango
       const resPagosRango = await supabaseClient
@@ -160,29 +217,36 @@
         pagadoRango += p.importe;
       });
   
-      // 4) Saldo total histórico: TODO el costo (sin filtro de fecha) - TODOS los pagos (sin filtro)
+      // 4) Saldos históricos: costo frigo histórico - pagos históricos
       const resCostoTotal = await supabaseClient
         .from('piezas')
-        .select('peso_kg, precio_compra_kg');
+        .select('peso_kg, cantidad, precio_compra_kg, precio_compra_unidad, origen, productos(tipo_venta)');
+  
+      let costoFrigoHistorico = 0;
+      (resCostoTotal.data || []).forEach((p) => {
+        if ((p.origen || 'Frigorífico') !== 'Frigorífico') return;
+        const tipo = p.productos ? p.productos.tipo_venta : 'kilo';
+        if (tipo === 'unidad') {
+          costoFrigoHistorico += (p.cantidad || 0) * (p.precio_compra_unidad || 0);
+        } else {
+          costoFrigoHistorico += (p.peso_kg || 0) * (p.precio_compra_kg || 0);
+        }
+      });
   
       const resPagosTotal = await supabaseClient
         .from('pagos')
         .select('importe');
-  
-      let costoTotalHistorico = 0;
-      (resCostoTotal.data || []).forEach((p) => {
-        costoTotalHistorico += p.peso_kg * p.precio_compra_kg;
-      });
   
       let pagadoTotalHistorico = 0;
       (resPagosTotal.data || []).forEach((p) => {
         pagadoTotalHistorico += p.importe;
       });
   
-      const saldoRango = costoRango - pagadoRango;
-      const saldoTotalHistorico = costoTotalHistorico - pagadoTotalHistorico;
+      const saldoRango = costoFrigo - pagadoRango;
+      const saldoTotalHistorico = costoFrigoHistorico - pagadoTotalHistorico;
   
-      elCosto.textContent = formatearPrecio(costoRango);
+      elCosto.textContent = formatearPrecio(costoFrigo);
+      if (elCostoTotal) elCostoTotal.textContent = formatearPrecio(costoTotal);
       elVentas.textContent = formatearPrecio(ventasRango);
       elGanancia.textContent = formatearPrecio(gananciaRango);
       if (elPagadoRango) elPagadoRango.textContent = formatearPrecio(pagadoRango);
@@ -191,8 +255,6 @@
   
       renderizarTablaPagos();
     }
-  
-    // ----- TABLA DE PAGOS -----
   
     function renderizarTablaPagos() {
       const tbody = document.getElementById('tbody-pagos');
@@ -242,8 +304,6 @@
         });
       });
     }
-  
-    // ----- MODAL PAGO -----
   
     function abrirModalNuevo() {
       const modal = document.getElementById('modal-pago');
@@ -329,8 +389,6 @@
       cerrarModal();
       calcular();
     }
-  
-    // ----- INIT -----
   
     function inicializar() {
       const inputDesde = document.getElementById('resumen-desde');
