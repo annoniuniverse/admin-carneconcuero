@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Panel — admin carneconcuero</title>
+
+  <link rel="stylesheet" href="css/custom.css" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Bitter:wght@600;700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+</head>
+<body>
+
+  <!-- ================= HEADER ================= -->
+  <header class="header-admin">
+    <div class="header-admin-contenido">
+      <div class="header-admin-marca">
+        admin carneconcuero<span class="punto">.</span>
+      </div>
+      <div class="header-admin-info">
+        <span id="info-email">—</span>
+        <button id="btn-logout" class="btn-secundario" style="color: #ffffff; border-color: #ffffff;">
+          Salir
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- ================= CONTENEDOR ================= -->
+  <div class="contenedor-admin">
+
+    <!-- Tabs -->
+    <div class="tabs">
+      <button class="tab activo" data-tab="precios">Precios</button>
+      <button class="tab" data-tab="ingresos">Ingresos</button>
+      <button class="tab" data-tab="pedidos">Pedidos</button>
+      <button class="tab" data-tab="stock">Stock</button>
+      <button class="tab" data-tab="resumen">Resumen</button>
+    </div>
+
+    <!-- ================= PANEL: PRECIOS ================= -->
+    <div id="panel-precios" class="panel activo">
+      <div class="flex-between mb-4">
+        <div>
+          <h2 class="titulo-seccion" style="margin-bottom: 0.25rem;">Lista de precios</h2>
+          <p class="texto-secundario text-sm">Productos y precios de compra/venta por kilo.</p>
+        </div>
+        <button id="btn-nuevo-producto" class="btn-primario">+ Nuevo producto</button>
+      </div>
+
+      <div class="tabla-wrapper">
+        <table class="tabla-admin">
+          <thead>
+            <tr>
+              <th>Producto</th>
+              <th>Precio compra / kg</th>
+              <th>Precio venta / kg</th>
+              <th>Margen %</th>
+              <th>Ganancia / kg</th>
+              <th>Acciones</th>
+            </tr>
+          </thead>
+          <tbody id="tbody-precios">
+            <tr><td colspan="6" class="text-center texto-secundario" style="padding: 2rem;">Cargando...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ================= PANEL: INGRESOS ================= -->
+    <div id="panel-ingresos" class="panel">
+      <div class="flex-between mb-4">
+        <div>
+          <h2 class="titulo-seccion" style="margin-bottom: 0.25rem;">Ingresos de mercadería</h2>
+          <p class="texto-secundario text-sm">Cada pieza que ingresa se registra con su peso real.</p>
+        </div>
+        <button id="btn-nuevo-ingreso" class="btn-primario">+ Cargar pieza</button>
+      </div>
+
+      <div class="tabla-wrapper">
+        <table class="tabla-admin">
+          <thead>
+            <tr>
+              <th>Fecha</th>
+              <th>Producto</th>
+              <th>Peso (kg)</th>
+              <th>Precio compra / kg</th>
+              <th>Costo pieza</th>
+              <th>Origen</th>
+              <th>Estado</th>
+              <th>Acciones</th>
+            </tr>
+          </thead>
+          <tbody id="tbody-ingresos">
+            <tr><td colspan="8" class="text-center texto-secundario" style="padding: 2rem;">Cargando...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ================= PANEL: PEDIDOS ================= -->
+    <div id="panel-pedidos" class="panel">
+      <div class="flex-between mb-4">
+        <div>
+          <h2 class="titulo-seccion" style="margin-bottom: 0.25rem;">Pedidos</h2>
+          <p class="texto-secundario text-sm">Pedidos de clientes con sus piezas asignadas.</p>
+        </div>
+        <button id="btn-nuevo-pedido" class="btn-primario">+ Nuevo pedido</button>
+      </div>
+
+      <div class="tabla-wrapper">
+        <table class="tabla-admin">
+          <thead>
+            <tr>
+              <th>Fecha</th>
+              <th>Cliente</th>
+              <th>Teléfono</th>
+              <th>Dirección</th>
+              <th>Estado</th>
+              <th>Piezas</th>
+              <th>Total</th>
+              <th>Acciones</th>
+            </tr>
+          </thead>
+          <tbody id="tbody-pedidos">
+            <tr><td colspan="8" class="text-center texto-secundario" style="padding: 2rem;">Cargando...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ================= PANEL: STOCK ================= -->
+    <div id="panel-stock" class="panel">
+      <h2 class="titulo-seccion">Stock disponible</h2>
+      <p class="texto-secundario text-sm mb-4">Piezas individuales disponibles (no vendidas).</p>
+
+      <div class="tabla-wrapper">
+        <table class="tabla-admin">
+          <thead>
+            <tr>
+              <th>Producto</th>
+              <th>Peso (kg)</th>
+              <th>Precio compra / kg</th>
+              <th>Fecha ingreso</th>
+              <th>Estado</th>
+            </tr>
+          </thead>
+          <tbody id="tbody-stock">
+            <tr><td colspan="5" class="text-center texto-secundario" style="padding: 2rem;">Cargando...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ================= PANEL: RESUMEN ================= -->
+    <div id="panel-resumen" class="panel">
+      <h2 class="titulo-seccion">Resumen por rango de fechas</h2>
+      <p class="texto-secundario text-sm mb-4">Totales de compras, ventas, ganancia, pagos y saldos.</p>
+
+      <div class="form-fila mb-4" style="align-items: flex-end;">
+        <div class="form-grupo" style="margin-bottom: 0;">
+          <label for="resumen-desde" class="label-base">Desde</label>
+          <input type="date" id="resumen-desde" class="input-base" />
+        </div>
+        <div class="form-grupo" style="margin-bottom: 0;">
+          <label for="resumen-hasta" class="label-base">Hasta</label>
+          <input type="date" id="resumen-hasta" class="input-base" />
+        </div>
+        <div class="form-grupo" style="margin-bottom: 0;">
+          <button id="btn-calcular-resumen" class="btn-primario w-full">Calcular</button>
+        </div>
+      </div>
+
+      <div id="resumen-error" class="modal-error mb-3"></div>
+
+      <h4 class="titulo-seccion" style="font-size: 1rem; margin-bottom: 0.5rem;">Totales del rango</h4>
+      <div class="tarjetas-resumen">
+        <div class="tarjeta-resumen roja">
+          <div class="tarjeta-resumen-label">Costo frigorífico</div>
+          <div class="tarjeta-resumen-valor" id="resumen-costo">$0</div>
+        </div>
+        <div class="tarjeta-resumen">
+          <div class="tarjeta-resumen-label">Costo total (todos los orígenes)</div>
+          <div class="tarjeta-resumen-valor" id="resumen-costo-total">$0</div>
+        </div>
+        <div class="tarjeta-resumen">
+          <div class="tarjeta-resumen-label">Ventas totales</div>
+          <div class="tarjeta-resumen-valor" id="resumen-ventas">$0</div>
+        </div>
+        <div class="tarjeta-resumen verde">
+          <div class="tarjeta-resumen-label">Ganancia</div>
+          <div class="tarjeta-resumen-valor" id="resumen-ganancia">$0</div>
+        </div>
+      </div>
+
+      <h4 class="titulo-seccion" style="font-size: 1rem; margin-bottom: 0.5rem;">Saldos con el frigorífico</h4>
+      <div class="tarjetas-resumen">
+        <div class="tarjeta-resumen">
+          <div class="tarjeta-resumen-label">Pagado en el rango</div>
+          <div class="tarjeta-resumen-valor" id="resumen-pagado-rango">$0</div>
+        </div>
+        <div class="tarjeta-resumen roja">
+          <div class="tarjeta-resumen-label">Saldo del rango (costo frigo − pagado)</div>
+          <div class="tarjeta-resumen-valor" id="resumen-saldo-rango">$0</div>
+        </div>
+        <div class="tarjeta-resumen roja">
+          <div class="tarjeta-resumen-label">Saldo total histórico</div>
+          <div class="tarjeta-resumen-valor" id="resumen-saldo-total">$0</div>
+        </div>
+      </div>
+
+      <div class="flex-between mb-3 mt-6">
+        <h4 class="titulo-seccion" style="font-size: 1rem; margin-bottom: 0;">Pagos del rango</h4>
+        <button id="btn-nuevo-pago" class="btn-primario">+ Registrar pago</button>
+      </div>
+
+      <div class="tabla-wrapper">
+        <table class="tabla-admin">
+          <thead>
+            <tr>
+              <th>Fecha</th>
+              <th>Quién transfirió</th>
+              <th>Destinatario</th>
+              <th>Importe</th>
+              <th>Anotación</th>
+              <th>Acciones</th>
+            </tr>
+          </thead>
+          <tbody id="tbody-pagos">
+            <tr><td colspan="6" class="text-center texto-secundario" style="padding: 2rem;">Cargando...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ================= MODAL PRODUCTO ================= -->
+  <div id="modal-producto" class="modal-overlay">
+    <div class="modal-contenido">
+      <div class="modal-header">
+        <h3 id="modal-producto-titulo">Nuevo producto</h3>
+        <button id="btn-cancelar-producto-x" class="modal-cerrar" aria-label="Cerrar">✕</button>
+      </div>
+
+      <div class="modal-body">
+        <div id="modal-producto-error" class="modal-error"></div>
+
+        <input type="hidden" id="input-producto-id" />
+
+        <div class="form-grupo">
+          <label for="input-producto-nombre" class="label-base">Nombre del producto</label>
+          <input
+            type="text"
+            id="input-producto-nombre"
+            class="input-base"
+            placeholder="Ej: Vacío, Lomo, Entraña"
+          />
+        </div>
+
+        <div class="form-grupo">
+          <label for="input-producto-compra" class="label-base">Precio compra / kg</label>
+          <input
+            type="number"
+            id="input-producto-compra"
+            class="input-base"
+            placeholder="0"
+            min="0"
+            step="0.01"
+          />
+        </div>
+
+        <div class="form-grupo">
+          <label for="input-producto-venta" class="label-base">Precio venta / kg</label>
+          <input
+            type="number"
+            id="input-producto-venta"
+            class="input-base"
+            placeholder="0"
+            min="0"
+            step="0.01"
+          />
+        </div>
+
+        <div class="modal-footer">
+          <button id="btn-cancelar-producto" class="btn-secundario">Cancelar</button>
+          <button id="btn-guardar-producto" class="btn-primario">Guardar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= MODAL INGRESO ================= -->
+  <div id="modal-ingreso" class="modal-overlay">
+    <div class="modal-contenido" style="max-width: 560px;">
+      <div class="modal-header">
+        <h3>Cargar piezas</h3>
+        <button id="btn-cerrar-ingreso" class="modal-cerrar" aria-label="Cerrar">✕</button>
+      </div>
+
+      <div class="modal-body">
+        <div id="modal-ingreso-error" class="modal-error"></div>
+
+        <div class="form-grupo">
+          <label for="input-ingreso-fecha" class="label-base">Fecha de ingreso</label>
+          <input
+            type="date"
+            id="input-ingreso-fecha"
+            class="input-base"
+          />
+        </div>
+
+        <div class="form-grupo">
+          <label for="input-ingreso-producto" class="label-base">Producto</label>
+          <select id="input-ingreso-producto" class="input-base">
+            <option value="">— Seleccioná un producto —</option>
+          </select>
+        </div>
+
+        <div class="form-grupo">
+          <label for="input-ingreso-origen" class="label-base">Origen</label>
+          <input
+            type="text"
+            id="input-ingreso-origen"
+            class="input-base"
+            placeholder="Ej: Frigorífico, Super, Otro"
+            value="Frigorífico"
+          />
+        </div>
+
+        <div class="form-fila">
+          <div class="form-grupo">
+            <label for="input-ingreso-precio" class="label-base">Precio compra / kg</label>
+            <input
+              type="number"
+              id="input-ingreso-precio"
+              class="input-base"
+              placeholder="0"
+              min="0"
+              step="0.01"
+            />
+          </div>
+
+          <div class="form-grupo">
+            <label for="input-ingreso-peso" class="label-base">Peso real (kg)</label>
+            <input
+              type="number"
+              id="input-ingreso-peso"
+              class="input-base"
+              placeholder="Ej: 3.877"
+              min="0"
+              step="0.001"
+            />
+          </div>
+        </div>
+
+        <button type="button" id="btn-agregar-a-lista" class="btn-primario w-full mt-2">
+          + Agregar a la lista
+        </button>
+
+        <div class="form-grupo mt-4">
+          <label class="label-base">Piezas a guardar</label>
+          <div id="lista-temporal-ingreso" style="background-color: var(--color-crema); border-radius: 0.5rem; padding: 0.5rem 0.75rem; max-height: 220px; overflow-y: auto;">
+            <p class="texto-secundario text-sm" style="padding: 0.5rem 0;">Todavía no agregaste piezas a la lista.</p>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button id="btn-cancelar-ingreso" class="btn-secundario">Cancelar</button>
+          <button id="btn-guardar-ingreso" class="btn-primario" disabled>Guardar piezas</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= MODAL EDITAR PIEZA ================= -->
+  <div id="modal-editar-pieza" class="modal-overlay">
+    <div class="modal-contenido">
+      <div class="modal-header">
+        <h3>Editar pieza</h3>
+        <button id="btn-cerrar-editar-pieza" class="modal-cerrar" aria-label="Cerrar">✕</button>
+      </div>
+
+      <div class="modal-body">
+        <div id="modal-editar-pieza-error" class="modal-error"></div>
+
+        <input type="hidden" id="input-editar-pieza-id" />
+
+        <p class="texto-secundario text-sm mb-3">
+          Producto: <strong id="modal-editar-pieza-nombre">—</strong>
+        </p>
+
+        <div class="form-grupo">
+          <label for="input-editar-pieza-peso" class="label-base">Peso real (kg)</label>
+          <input
+            type="number"
+            id="input-editar-pieza-peso"
+            class="input-base"
+            placeholder="Ej: 3.877"
+            min="0"
+            step="0.001"
+          />
+        </div>
+
+        <div class="form-grupo">
+          <label for="input-editar-pieza-precio" class="label-base">Precio compra / kg</label>
+          <input
+            type="number"
+            id="input-editar-pieza-precio"
+            class="input-base"
+            placeholder="0"
+            min="0"
+            step="0.01"
+          />
+        </div>
+
+        <div class="form-grupo">
+          <label for="input-editar-pieza-origen" class="label-base">Origen</label>
+          <input
+            type="text"
+            id="input-editar-pieza-origen"
+            class="input-base"
+            placeholder="Ej: Frigorífico, Super, Otro"
+          />
+        </div>
+
+        <div class="form-grupo">
+          <label for="input-editar-pieza-fecha" class="label-base">Fecha de ingreso</label>
+          <input
+            type="date"
+            id="input-editar-pieza-fecha"
+            class="input-base"
+          />
+        </div>
+
+        <div class="modal-footer">
+          <button id="btn-cancelar-editar-pieza" class="btn-secundario">Cancelar</button>
+          <button id="btn-guardar-editar-pieza" class="btn-primario">Guardar cambios</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= MODAL PEDIDO ================= -->
+  <div id="modal-pedido" class="modal-overlay">
+    <div class="modal-contenido" style="max-width: 640px;">
+      <div class="modal-header">
+        <h3 id="modal-pedido-titulo">Nuevo pedido</h3>
+        <button id="btn-cerrar-pedido" class="modal-cerrar" aria-label="Cerrar">✕</button>
+      </div>
+
+      <div class="modal-body">
+        <div id="modal-pedido-error" class="modal-error"></div>
+
+        <div id="aviso-pedido-bloqueado" style="display: none; background-color: #fef3c7; color: #92400e; padding: 0.75rem; border-radius: 0.375rem; font-size: 0.85rem; margin-bottom: 1rem;">
+          Este pedido está <strong>entregado</strong>. Solo podés editar los datos del cliente y los precios de venta. No se pueden agregar ni quitar piezas.
+        </div>
+
+        <div class="form-grupo">
+          <label for="input-pedido-fecha" class="label-base">Fecha</label>
+          <input type="date" id="input-pedido-fecha" class="input-base" />
+        </div>
+
+        <div class="form-grupo">
+          <label for="input-pedido-nombre" class="label-base">Nombre del cliente *</label>
+          <input type="text" id="input-pedido-nombre" class="input-base" placeholder="Ej: Pedro López" />
+        </div>
+
+        <div class="form-fila">
+          <div class="form-grupo">
+            <label for="input-pedido-telefono" class="label-base">Teléfono</label>
+            <input type="text" id="input-pedido-telefono" class="input-base" placeholder="Opcional" />
+          </div>
+          <div class="form-grupo">
+            <label for="input-pedido-direccion" class="label-base">Dirección</label>
+            <input type="text" id="input-pedido-direccion" class="input-base" placeholder="Opcional" />
+          </div>
+        </div>
+
+        <div class="form-grupo">
+          <label for="input-pedido-notas" class="label-base">Notas</label>
+          <input type="text" id="input-pedido-notas" class="input-base" placeholder="Opcional" />
+        </div>
+
+        <hr style="border: none; border-top: 1px solid var(--color-crema-oscura); margin: 1rem 0;" />
+
+        <h4 class="titulo-seccion" style="font-size: 1rem; margin-bottom: 0.5rem;">Piezas del pedido</h4>
+
+        <div class="form-grupo">
+          <label for="input-pedido-producto" class="label-base">Elegí un producto</label>
+          <select id="input-pedido-producto" class="input-base">
+            <option value="">— Elegí un producto —</option>
+          </select>
+        </div>
+
+        <div class="form-grupo">
+          <label class="label-base">Piezas disponibles</label>
+          <div id="lista-piezas-disponibles" style="background-color: var(--color-crema); border-radius: 0.5rem; padding: 0.5rem 0.75rem; max-height: 160px; overflow-y: auto;">
+            <p class="texto-secundario text-sm" style="padding: 0.5rem 0;">Elegí un producto para ver sus piezas disponibles.</p>
+          </div>
+        </div>
+
+        <div class="form-grupo mt-3">
+          <label class="label-base">Piezas seleccionadas (editá el precio de venta si hace falta)</label>
+          <div id="lista-piezas-seleccionadas" style="background-color: var(--color-crema); border-radius: 0.5rem; padding: 0.5rem 0.75rem; max-height: 220px; overflow-y: auto;">
+            <p class="texto-secundario text-sm" style="padding: 0.5rem 0;">Todavía no agregaste piezas.</p>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button id="btn-cancelar-pedido" class="btn-secundario">Cancelar</button>
+          <button id="btn-guardar-pedido" class="btn-primario" disabled>Guardar pedido</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= MODAL PAGO ================= -->
+  <div id="modal-pago" class="modal-overlay">
+    <div class="modal-contenido">
+      <div class="modal-header">
+        <h3 id="modal-pago-titulo">Registrar pago</h3>
+        <button id="btn-cerrar-pago" class="modal-cerrar" aria-label="Cerrar">✕</button>
+      </div>
+
+      <div class="modal-body">
+        <div id="modal-pago-error" class="modal-error"></div>
+
+        <input type="hidden" id="input-pago-id" />
+
+        <div class="form-grupo">
+          <label for="input-pago-fecha" class="label-base">Fecha</label>
+          <input type="date" id="input-pago-fecha" class="input-base" />
+        </div>
+
+        <div class="form-grupo">
+          <label for="input-pago-importe" class="label-base">Importe</label>
+          <input
+            type="number"
+            id="input-pago-importe"
+            class="input-base"
+            placeholder="0"
+            min="0"
+            step="0.01"
+          />
+        </div>
+
+        <div class="form-grupo">
+          <label for="input-pago-quien" class="label-base">Quién transfirió</label>
+          <input
+            type="text"
+            id="input-pago-quien"
+            class="input-base"
+            placeholder="Ej: Yo, Cliente: Pedro López, Juan del frigorífico"
+          />
+        </div>
+
+        <div class="form-grupo">
+          <label for="input-pago-destinatario" class="label-base">Destinatario</label>
+          <input
+            type="text"
+            id="input-pago-destinatario"
+            class="input-base"
+            placeholder="Ej: Frigorífico, Juan (indicado por el frigorífico)"
+          />
+        </div>
+
+        <div class="form-grupo">
+          <label for="input-pago-anotacion" class="label-base">Anotación</label>
+          <input
+            type="text"
+            id="input-pago-anotacion"
+            class="input-base"
+            placeholder="Opcional"
+          />
+        </div>
+
+        <div class="modal-footer">
+          <button id="btn-cancelar-pago" class="btn-secundario">Cancelar</button>
+          <button id="btn-guardar-pago" class="btn-primario">Guardar pago</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Supabase SDK -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+  <!-- Configuración y cliente -->
+  <script src="js/config.js"></script>
+  <script src="js/supabase-client.js"></script>
+  <script src="js/auth.js"></script>
+
+  <!-- Módulos -->
+  <script src="js/precios.js"></script>
+  <script src="js/ingresos.js"></script>
+  <script src="js/pedidos.js"></script>
+  <script src="js/stock.js"></script>
+  <script src="js/resumen.js"></script>
+
+  <!-- Lógica del panel -->
+  <script>
+    (async function () {
+      const usuario = await Auth.requerirSesion();
+      if (!usuario) return;
+
+      document.getElementById('info-email').textContent = usuario.email || '';
+
+      document.getElementById('btn-logout').addEventListener('click', () => {
+        Auth.logout();
+      });
+
+      // Cambio de tabs con recarga del panel correspondiente
+      const tabs = document.querySelectorAll('.tab');
+      tabs.forEach((tab) => {
+        tab.addEventListener('click', () => {
+          tabs.forEach((t) => t.classList.remove('activo'));
+          document.querySelectorAll('.panel').forEach((p) => p.classList.remove('activo'));
+
+          tab.classList.add('activo');
+          const nombreTab = tab.getAttribute('data-tab');
+          const idPanel = 'panel-' + nombreTab;
+          const panel = document.getElementById(idPanel);
+          if (panel) panel.classList.add('activo');
+
+          if (nombreTab === 'precios') Precios.inicializar();
+          if (nombreTab === 'ingresos') Ingresos.inicializar();
+          if (nombreTab === 'pedidos') Pedidos.inicializar();
+          if (nombreTab === 'stock') Stock.inicializar();
+          if (nombreTab === 'resumen') Resumen.inicializar();
+        });
+      });
+
+      const btnCerrarX = document.getElementById('btn-cancelar-producto-x');
+      if (btnCerrarX) {
+        btnCerrarX.addEventListener('click', () => {
+          document.getElementById('modal-producto').classList.remove('activo');
+        });
+      }
+
+      // Carga inicial
+      Precios.inicializar();
+      Ingresos.inicializar();
+      Pedidos.inicializar();
+      Stock.inicializar();
+      Resumen.inicializar();
+    })();
+  </script>
+
+</body>
+</html>

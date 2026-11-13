@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Ingresar — admin carneconcuero</title>
+
+  <link rel="stylesheet" href="css/custom.css" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Bitter:wght@600;700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+</head>
+<body>
+
+  <div class="login-wrapper">
+    <div class="login-card">
+      <h1 class="login-titulo">admin carneconcuero<span style="color: var(--color-rojo);">.</span></h1>
+      <p class="login-subtitulo">Ingresá con tu cuenta</p>
+
+      <div id="login-error" class="login-error"></div>
+
+      <form id="form-login">
+        <div class="form-grupo">
+          <label for="input-email" class="label-base">Email</label>
+          <input
+            type="email"
+            id="input-email"
+            class="input-base"
+            placeholder="tu@email.com"
+            autocomplete="email"
+            required
+          />
+        </div>
+
+        <div class="form-grupo mt-3">
+          <label for="input-password" class="label-base">Contraseña</label>
+          <input
+            type="password"
+            id="input-password"
+            class="input-base"
+            placeholder="••••••••"
+            autocomplete="current-password"
+            required
+          />
+        </div>
+
+        <button
+          type="submit"
+          id="btn-login"
+          class="btn-primario w-full mt-4"
+        >
+          Ingresar
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Supabase SDK -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+  <!-- Configuración y cliente -->
+  <script src="js/config.js"></script>
+  <script src="js/supabase-client.js"></script>
+  <script src="js/auth.js"></script>
+
+  <!-- Lógica del login -->
+  <script>
+    (async function () {
+      // Si ya hay sesión, redirigir al panel
+      await Auth.redirigirSiLogueado();
+
+      const form = document.getElementById('form-login');
+      const errorBox = document.getElementById('login-error');
+      const btn = document.getElementById('btn-login');
+
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        errorBox.classList.remove('activo');
+        errorBox.textContent = '';
+        btn.disabled = true;
+        btn.textContent = 'Ingresando...';
+
+        const email = document.getElementById('input-email').value.trim();
+        const password = document.getElementById('input-password').value;
+
+        const resultado = await Auth.login(email, password);
+
+        if (resultado.ok) {
+          window.location.href = 'index.html';
+        } else {
+          errorBox.textContent = 'Error: ' + resultado.mensaje;
+          errorBox.classList.add('activo');
+          btn.disabled = false;
+          btn.textContent = 'Ingresar';
+        }
+      });
+    })();
+  </script>
+
+</body>
+</html>
